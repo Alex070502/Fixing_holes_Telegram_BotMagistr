@@ -8,7 +8,6 @@ from Config_BD.Basemodul import engine, wa, pa, users
 
 class SQL:
     session = Session(engine)
-    print("alex loh")
     def well_app_insert(self,
                         address: str, longtitude: float, latitude: float,
                         user_id: int, photo: bytearray, det_photo: bytearray, date: datetime):
