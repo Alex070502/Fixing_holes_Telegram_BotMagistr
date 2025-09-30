@@ -23,6 +23,7 @@ sql = repo.SQL()
 status = ["Рассматривается 🔁", "Выполняется 🔸", "Выполнена ✅", "Ошибка ⚠️"]
 mark_from_db()
 mark_from_well_db()
+print("print")
 if os.path.exists("runs/result/bot"):
     shutil.rmtree("runs/result/bot")
 if os.path.exists("runs/result/crack"):
