@@ -1,6 +1,6 @@
 import datetime
 
-from sqlalchemy import insert, select, update, delete, or_
+from sqlalchemy import insert, select, update, delete, or_, and_
 from sqlalchemy.orm import Session
 from Config_BD.Basemodul import engine, wa, pa, users
 
@@ -23,6 +23,19 @@ class SQL:
         self.session.execute(ins)
         self.session.commit()
 
+    def well_app_insert_w_video(self,
+                        address: str, longtitude: float, latitude: float,
+                        user_id: int, date: datetime):
+        ins = insert(wa).values(
+            address=address,
+            longtitude=longtitude,
+            latitude=latitude,
+            user_id=user_id,
+            date=date
+        )
+        self.session.execute(ins)
+        self.session.commit()
+
     def pathole_app_insert(self,
                            address: str, longtitude: float, latitude: float,
                            user_id: int, photo: bytearray, det_photo: bytearray, date: datetime):
@@ -33,6 +46,19 @@ class SQL:
             user_id=user_id,
             photo=photo,
             detected_photo=det_photo,
+            date=date
+        )
+        self.session.execute(ins)
+        self.session.commit()
+
+    def pathole_app_insert_w_video(self,
+                           address: str, longtitude: float, latitude: float,
+                           user_id: int, date: datetime):
+        ins = insert(pa).values(
+            address=address,
+            longtitude=longtitude,
+            latitude=latitude,
+            user_id=user_id,
             date=date
         )
         self.session.execute(ins)
@@ -116,14 +142,26 @@ class SQL:
         return self.session.execute(s).all()
 
     def get_active_app_coordinates(self):
-        s = select(pa.c.latitude, pa.c.longtitude, pa.c.id).where(
+        s = select(pa.c.latitude, pa.c.longtitude, pa.c.id, pa.c.detected_photo, pa.c.status, pa.c.address, pa.c.date).where(
             or_(pa.c.status == "Выполняется 🔸", pa.c.status == "Рассматривается", pa.c.status == "Рассматривается 🔁")
         )
         return self.session.execute(s).all()
 
+    def get_active_app_coordinates_user(self, user_id):
+        s = select(pa.c.latitude, pa.c.longtitude, pa.c.id, pa.c.detected_photo, pa.c.status, pa.c.address, pa.c.date).where(
+            and_(pa.c.user_id == user_id, or_(pa.c.status == "Выполняется 🔸", pa.c.status == "Рассматривается", pa.c.status == "Рассматривается 🔁"))
+        )
+        return self.session.execute(s).all()
+
     def get_active_app_coordinates_well(self):
-        s = select(wa.c.latitude, wa.c.longtitude, wa.c.id).where(
+        s = select(wa.c.latitude, wa.c.longtitude, wa.c.id, wa.c.detected_photo, wa.c.status, wa.c.address, wa.c.date).where(
             or_(wa.c.status == "Выполняется 🔸", wa.c.status == "Рассматривается", wa.c.status == "Рассматривается 🔁")
+        )
+        return self.session.execute(s).all()
+
+    def get_active_app_coordinates_well_user(self, user_id):
+        s = select(wa.c.latitude, wa.c.longtitude, wa.c.id, wa.c.detected_photo, wa.c.status, wa.c.address, wa.c.date).where(
+            and_(wa.c.user_id == user_id, or_(wa.c.status == "Выполняется 🔸", wa.c.status == "Рассматривается", wa.c.status == "Рассматривается 🔁"))
         )
         return self.session.execute(s).all()
 

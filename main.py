@@ -1,33 +1,36 @@
 import os.path
 import shutil
+from email import message_from_file
+
 import requests
 import telebot
 import cv2
 from telebot import types
+from telebot.apihelper import send_message
 from ultralytics import YOLO, solutions
 from moviepy.editor import VideoFileClip
 from Config_BD import repo
 from mapHandler import mark_from_db, mark, mark_from_well_db
 import datetime
 
+from test import image
+
 print("СТАРТУЕМ")
 print("маг")
 
-model = YOLO("weights/best.pt")
+#model = YOLO("weights/best.pt")
+#model = YOLO("weights/weights12/best.pt")
+model = YOLO("weights/weights121225/best.pt")
+
 model_well = YOLO("weights_well/best.pt")
-model_crack = YOLO("weights_crack/best.pt")
-# Токен телеграмм бота Fixing_holes_Telegram_Bot
 bot = telebot.TeleBot('6412797520:AAEhE-O7L5otKppHBDKu5XFQjH740jYOgjA')
 location_token = 'pk.d93bd73df995d45f948bf8edd36b1e3e'
 sql = repo.SQL()
 status = ["Рассматривается 🔁", "Выполняется 🔸", "Выполнена ✅", "Ошибка ⚠️"]
 mark_from_db()
 mark_from_well_db()
-print("print")
-if os.path.exists("runs/result/bot"):
-    shutil.rmtree("runs/result/bot")
-if os.path.exists("runs/result/crack"):
-    shutil.rmtree("runs/result/crack")
+if os.path.exists("runs/result"):
+    shutil.rmtree("runs/result")
 
 @bot.message_handler(commands=['start'])
 def button(message):
@@ -87,7 +90,12 @@ def func(message):
         answer_profile = types.InlineKeyboardMarkup(row_width=2)
         button_well_profile = types.InlineKeyboardButton("Заявки колодцы🕳", callback_data='профиль колодцы')
         button_pothole_profile = types.InlineKeyboardButton("Заявки ямы 🖇", callback_data='профиль ямы')
-        answer_profile.add(button_well_profile, button_pothole_profile)
+        button_profile_well_map = types.InlineKeyboardButton("📍 Карта 🕳", web_app=types.WebAppInfo(
+            url=f"https://naughtily-hot-genet.cloudpub.ru/well/{user_id}"))
+        button_profile_pothole_map = types.InlineKeyboardButton("📍 Карта 🖇", web_app=types.WebAppInfo(
+            url=f"https://naughtily-hot-genet.cloudpub.ru/pothole/{user_id}"))
+
+        answer_profile.add(button_well_profile, button_pothole_profile, button_profile_well_map,button_profile_pothole_map)
         bot.send_message(message.chat.id, f"<b>Ваше имя: {first_name} {last_name}</b>"
                                           f"\n<b>Ваш ID: {user_id}</b>"
                                           f"\n<b>Количество заявок на открытый колодец 🕳: {well_count}</b>"
@@ -188,7 +196,7 @@ def get_contact(message):
         user_phone = '+7' + user_phone[1:-1]
     sql.add_number(user_phone, user_id)
 
-
+@bot.message_handler(func=lambda message: True, content_types=['location'])
 def loc_photo(message, photo, det_photo, mode):
     location = message.location
     print(type(location))
@@ -215,6 +223,7 @@ def loc_photo(message, photo, det_photo, mode):
                          "\n<b>Ждем от Вас новых заявок!</b>❤ ️", parse_mode="html")
 
 
+@bot.message_handler(func=lambda message: True, content_types=['photo'])
 def photo_well(message):
     photo = message.photo
     fileID = photo[-1].file_id
@@ -224,7 +233,7 @@ def photo_well(message):
         new_file.write(downloaded_file)
     photo = open(file_info.file_path, 'rb').read()
     bot.send_message(message.chat.id, "<b>️Идет анализ вашего фото. Подождите!</b>⏱ ️", parse_mode="html")
-    res = model_well(file_info.file_path, save=True)
+    res = model_well(file_info.file_path, save=True, project="runs/result", name=fileID)
     open_w = 0
     clse_w = 0
     for i in range(len(res[0].boxes.cls)):
@@ -234,16 +243,18 @@ def photo_well(message):
             clse_w += 1
     if open_w:  # проверка на обнаружения открытого колодца
         file_name = file_info.file_path.replace("photos/", "")
-        detect_photo = open(f"runs/result/bot/{file_name}", "rb")
+        detect_photo = open(f"runs/result/{fileID}/{file_name}", "rb")
         button = types.InlineKeyboardButton("Оставить геопозицию", callback_data='геопозиция')
         answer = types.InlineKeyboardMarkup(row_width=2)
         answer.add(button)
         bot.send_photo(message.chat.id, detect_photo, reply_markup=answer)
-        det_photo = open(f"runs/result/bot/{file_name}", "rb").read()
+        #det_photo = open(f"runs/result/bot/{file_name}", "rb").read()
+        det_photo = open(f"runs/result/{fileID}/{file_name}", "rb").read()
         bot.register_next_step_handler(message, loc_photo, photo, det_photo, 2)
     elif clse_w:
         file_name = file_info.file_path.replace("photos/", "")
-        detect_photo = open(f"runs/result/bot/{file_name}", "rb")
+        #detect_photo = open(f"runs/result/bot/{file_name}", "rb")
+        detect_photo = open(f"runs/result/{fileID}/{file_name}", "rb")
         bot.send_photo(message.chat.id, detect_photo)
         bot.send_message(message.chat.id,
                          "<b>На фото не обнаружено открытых колодцев! ⚠️ Ваша заявка не будет направленна в Водоканал. ❌</b>"
@@ -254,114 +265,144 @@ def photo_well(message):
                          "<b>На фото не обнаружено ни одного колодца! ⚠️ Заявка не будет направленна в Водоканал. ❌</b>",
                          parse_mode="html")
 
+# @bot.message_handler(func=lambda message: True, content_types=['video'])
+# def video_well(message):
+    # video = message.video
+    # fileID = video.file_id
+    # file_info = bot.get_file(fileID)
+    # downloaded_file = bot.download_file(file_info.file_path)
+    # os.makedirs("videos", exist_ok=True)
+    # with open(file_info.file_path, 'wb') as new_file:
+    #     new_file.write(downloaded_file)
+    # bot.send_message(message.chat.id, "<b>Идет анализ вашего видео. Подождите!</b>⏱ ", parse_mode="html")
+    # res = model_well(file_info.file_path, save=True, project="runs/result", name=fileID)
+    # file_name = file_info.file_path.replace("videos/", "")
+    # input_video_path = f"runs/result/{fileID}/{file_name}".replace(".mp4", ".avi")
+    # output_video_path = input_video_path.replace('.avi', '.mp4')
+    # print(input_video_path)
+    # print(output_video_path)
+    # clip = VideoFileClip(input_video_path)
+    # clip.write_videofile(output_video_path)
+    # bot.send_video(message.chat.id, video=open(output_video_path, 'rb'))
+    # with open("video.jpg", "rb") as image_file:
+    #     photo = image_file.read()
+    #     bot.register_next_step_handler(message, loc_photo, photo, photo, 2)
 
-def video_well(message):
-    video = message.video
-    fileID = video.file_id
-    file_info = bot.get_file(fileID)
-    downloaded_file = bot.download_file(file_info.file_path)
-    os.makedirs("videos", exist_ok=True)
-    with open(file_info.file_path, 'wb') as new_file:
-        new_file.write(downloaded_file)
-    bot.send_message(message.chat.id, "<b>Идет анализ вашего видео. Подождите!</b>⏱ ", parse_mode="html")
-    res = model_well(file_info.file_path, save=True)
-    file_name = file_info.file_path.replace("videos/", "")
-    input_video_path = f"runs/result/bot/{file_name}"
-    output_video_path = input_video_path.replace('.MOV', '.AVI')
-    clip = VideoFileClip(output_video_path)
-    clip.write_videofile(output_video_path.replace('.AVI', '.MP4'))
-    bot.send_video(message.chat.id, video=open(output_video_path.replace('.AVI', '.MP4'), 'rb'))
+    #подсчет колодцем открытых и закрытых
+    # video = message.video
+    # fileID = video.file_id
+    # file_path = os.path.join("videos", f"{fileID}.mp4")
+    # file_info = bot.get_file(fileID)
+    # downloaded_file = bot.download_file(file_info.file_path)
+    # os.makedirs("videos", exist_ok=True)
+    # with open(file_path, "wb") as new_file:
+    #     new_file.write(downloaded_file)
+    # cap = cv2.VideoCapture(file_path)
+    # bot.send_message(message.chat.id,
+    #                  "<b>Идет анализ вашего видео. Подождите!</b>⏱ ", parse_mode="html")
+    # w, h, fps = (int(cap.get(x)) for x in (cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT, cv2.CAP_PROP_FPS))
+    # # region_points = [(0, (int)(h * 0.8)), (w, (int)(h * 0.8)), (w, (int)(h * 0.8 - 10)), (0, (int)(h * 0.8 - 10))]
+    # region_points = [(0, (int)(h * 0.7)), (w, (int)(h * 0.7)), (w, (int)(h * 0.95)), (0, (int)(h * 0.95))]
+    # video_writer = cv2.VideoWriter("counting_output.avi", cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+    # counter = solutions.ObjectCounter(
+    #     show_in=True,
+    #     show_out=False,
+    #     region=region_points,
+    #     classes=[0,1],
+    #     line_width=2,
+    #     model=model_well,
+    #     conf=0.5
+    #     # conf = 0.8
+    #     # conf = 0.4
+    # )
+    # while cap.isOpened():
+    #     success, im0 = cap.read()
+    #     if not success:
+    #         print("sc")
+    #         break
+    #
+    #     results = counter(im0)
+    #     video_writer.write(results.plot_im)
+    #
+    # cap.release()
+    #
+    # video_writer.release()
+    # cv2.destroyAllWindows()
+    #
+    # output_mp4 = "counting_output.mp4"
+    # clip = VideoFileClip("counting_output.avi")
+    # clip.write_videofile(output_mp4, codec='libx264', audio=False)
+    #
+    # if results.in_count > 0:
+    #     with open("video.jpg", "rb") as image_file:
+    #
+    #         button = types.InlineKeyboardButton("Оставить геопозицию", callback_data='геопозиция')
+    #         answer = types.InlineKeyboardMarkup(row_width=2)
+    #         answer.add(button)
+    #         bot.send_video(message.chat.id, video=open(output_mp4, 'rb'), reply_markup=answer)
+    #
+    #         os.remove(output_mp4)
+    #         os.remove("counting_output.avi")
+    #         os.remove(file_path)
+    #
+    #         photo = image_file.read()
+    #         bot.register_next_step_handler(message, loc_photo, photo, photo, 2)
+    # else:
+    #
+    #     bot.send_video(message.chat.id, video=open(output_mp4, 'rb'))
+    #     bot.send_message(message.chat.id,
+    #                      "<b>На видео не обнаружено ни одного колодца! ⚠️ Заявка не будет направленна в Водоканал. ❌</b>",
+    #                      parse_mode="html")
+    #     bot.send_message(message.chat.id,
+    #                      "<b>Спасибо, за бдительность! Если вы несогласны, обратитесь по номеру телефона: 8-950-111-25-01 ☎️</b>"
+    #                      "\n<b>Безопасность на дорогах - это наша общая задача! 🌍</b>"
+    #                      "\n<b>Ждем от Вас новых заявок!</b>❤ ", parse_mode="html")
 
 
+@bot.message_handler(func=lambda message: True, content_types=['photo'])
 def detect_photo(message):
     photo = message.photo
     fileID = photo[-1].file_id
     file_info = bot.get_file(fileID)
     file_name = file_info.file_path.replace("photos/", "")
     downloaded_file = bot.download_file(file_info.file_path)
-    copy_df = os.path.abspath(file_info.file_path)
-    copy_df = copy_df.replace('.jpg', '_crack.jpg')
     with open(file_info.file_path, 'wb') as new_file:
         new_file.write(downloaded_file)
     photo = open(file_info.file_path, 'rb').read()
-    copied_file = shutil.copyfile(os.path.abspath(file_info.file_path), copy_df)
     bot.send_message(message.chat.id,
                      "<b>Идет анализ вашего фото. Подождите!</b>⏱ ", parse_mode="html")
     res = model(file_info.file_path, save=True, project="runs/result", name=fileID)
     if k := len(res[0].boxes):
         detect_photo = open(f"runs/result/{fileID}/{file_name}", "rb")
+        det_photo = open(f"runs/result/{fileID}/{file_name}", "rb").read()
         if k == 1:
             bot.send_message(message.chat.id, f"<b>Обнаружена {k} яма</b>", parse_mode="html")
+            button = types.InlineKeyboardButton("Оставить геопозицию", callback_data='геопозиция')
+            answer = types.InlineKeyboardMarkup(row_width=2)
+            answer.add(button)
+            bot.send_photo(message.chat.id, detect_photo, reply_markup=answer)
+
         elif (k > 1) and (k < 5):
             bot.send_message(message.chat.id, f"<b>Обнаружено {k} ямы</b>", parse_mode="html")
+            button = types.InlineKeyboardButton("Оставить геопозицию", callback_data='геопозиция')
+            answer = types.InlineKeyboardMarkup(row_width=2)
+            answer.add(button)
+            bot.send_photo(message.chat.id, detect_photo, reply_markup=answer)
+
         elif k > 5:
             bot.send_message(message.chat.id, f"<b>Обнаружено {k} ям</b>", parse_mode="html")
-        answer = types.InlineKeyboardMarkup(row_width=2)
-        bot.send_photo(message.chat.id, detect_photo)
-        det_photo = open(f"runs/result/{fileID}/{file_name}", "rb").read()
-        detect_photo.close()
-        bot.send_message(message.chat.id,
-                         "<b>Ожидайте! ⏱</b>", parse_mode="html")
-        res1 = model_crack(copied_file, save=True, project="runs/result", name=f"{fileID}_crack")
-        k_holes = 0
-        k_crack = 0
-        for i in range(len(res1[0].boxes.cls)):
-            if res1[0].boxes.cls[i] == 15:
-                k_holes += 1
-            if res1[0].boxes.cls[i] == 16:
-                k_crack += 1
-        detect_photo = open(f"runs/result/{fileID}_crack/{file_name.replace('.jpg', '_crack.jpg')}", "rb")
-        bot.send_photo(message.chat.id, detect_photo)
-        # база данных фото с трещинами и ямами
-        # det_photo = open(f"runs/result/bot/{file_name.replace('.jpg', '_crack.jpg')}", "rb").read()
-        if k_holes == 1:
-            bot.send_message(message.chat.id, f"<b>Обнаружена {k_holes} яма</b>", parse_mode="html")
-        elif (k_holes > 1) and (k_holes < 5):
-            bot.send_message(message.chat.id, f"<b>Обнаружено {k_holes} ямы</b>", parse_mode="html")
-        elif k_holes > 5:
-            bot.send_message(message.chat.id, f"<b>Обнаружено {k_holes} ям</b>", parse_mode="html")
+            button = types.InlineKeyboardButton("Оставить геопозицию", callback_data='геопозиция')
+            answer = types.InlineKeyboardMarkup(row_width=2)
+            answer.add(button)
+            bot.send_photo(message.chat.id, detect_photo, reply_markup=answer)
 
-        if k_crack == 1:
-            bot.send_message(message.chat.id, f"<b>Обнаружена {k_crack} трещина</b>", parse_mode="html")
-        elif (k_crack > 1) and (k_crack < 5):
-            bot.send_message(message.chat.id, f"<b>Обнаружено {k_crack} трещины</b>", parse_mode="html")
-        elif k_crack > 5:
-            bot.send_message(message.chat.id, f"<b>Обнаружено {k_crack} трещин</b>", parse_mode="html")
-
-        if k_holes == 1 or k_crack == 1:
-            button = types.InlineKeyboardButton("Оставить геопозицию", callback_data='геопозиция')
-            answer = types.InlineKeyboardMarkup(row_width=2)
-            answer.add(button)
-            bot.send_message(message.chat.id,
-                             "<b>Предполагается выполнение ямочного ремонта дороги струйно-инъекционным способом.</b>",
-                             reply_markup=answer, parse_mode="html")
-        elif ((k_holes > 1) or (k_holes < 5)) and ((k_crack > 1) or (k_crack < 5)):
-            button = types.InlineKeyboardButton("Оставить геопозицию", callback_data='геопозиция')
-            answer = types.InlineKeyboardMarkup(row_width=2)
-            answer.add(button)
-            bot.send_message(message.chat.id,
-                             "<b>Предполагается выполнение ямочного ремонта дороги струйно-инъекционным способом.</b>",
-                             reply_markup=answer, parse_mode="html")
-        elif (k_holes > 1) and (k_holes < 5):
-            button = types.InlineKeyboardButton("Оставить геопозицию", callback_data='геопозиция')
-            answer = types.InlineKeyboardMarkup(row_width=2)
-            answer.add(button)
-            bot.send_message(message.chat.id,
-                             "<b>Предполагается выполнение ямочного ремонта дороги струйно-инъекционным способом.</b>",
-                             reply_markup=answer, parse_mode="html")
-        elif k_holes > 5 and k_crack > 2:
-            button = types.InlineKeyboardButton("Оставить геопозицию", callback_data='геопозиция')
-            answer = types.InlineKeyboardMarkup(row_width=2)
-            answer.add(button)
-            bot.send_message(message.chat.id, "<b>Предполагается выполнение капитального ремонта дороги.</b>",
-                             reply_markup=answer, parse_mode="html")
         bot.register_next_step_handler(message, loc_photo, photo, det_photo, 1)
 
     else:
-        file_name = file_info.file_path.replace("photos/", "")
-        print(file_name)
-        detect_photo = open(f"runs/result/{fileID}/{file_name}", "rb")
-        bot.send_photo(message.chat.id, detect_photo)
+        #file_name = file_info.file_path.replace("photos/", "")
+        # print(file_name)
+        # detect_photo = open(f"runs/result/{fileID}/{file_name}", "rb")
+        # bot.send_photo(message.chat.id, detect_photo)
 
         bot.send_message(message.chat.id,
                          "<b>На фото не обнаружено дорожных дефектов (ям)! ⚠️ Ваша заявка не будет направленна в Росавтодор. ❌</b>",
@@ -371,50 +412,85 @@ def detect_photo(message):
                          "\n<b>Безопасность на дорогах - это наша общая задача! 🌍</b>"
                          "\n<b>Ждем от Вас новых заявок!</b>❤ ", parse_mode="html")
 
-
+@bot.message_handler(func=lambda message: True, content_types=['video'])
 def detect_video(message):
     video = message.video
     fileID = video.file_id
+    file_path = os.path.join("videos", f"{fileID}.mp4")
     file_info = bot.get_file(fileID)
     downloaded_file = bot.download_file(file_info.file_path)
     os.makedirs("videos", exist_ok=True)
-    with open(file_info.file_path, 'wb') as new_file:
+    with open(file_path, "wb") as new_file:
         new_file.write(downloaded_file)
-    cap = cv2.VideoCapture(file_info.file_path)
+    cap = cv2.VideoCapture(file_path)
     bot.send_message(message.chat.id,
                      "<b>Идет анализ вашего видео. Подождите!</b>⏱ ", parse_mode="html")
     w, h, fps = (int(cap.get(x)) for x in (cv2.CAP_PROP_FRAME_WIDTH, cv2.CAP_PROP_FRAME_HEIGHT, cv2.CAP_PROP_FPS))
-    region_points = [(0, (int)(h * 0.8)), (w, (int)(h * 0.8)), (w, (int)(h * 0.8 - 10)), (0, (int)(h * 0.8 - 10))]
+    #region_points = [(0, (int)(h * 0.8)), (w, (int)(h * 0.8)), (w, (int)(h * 0.8 - 10)), (0, (int)(h * 0.8 - 10))]
+    region_points = [(0, (int)(h * 0.7)), (w, (int)(h * 0.7)), (w, (int)(h * 0.95)), (0, (int)(h * 0.95))]
     video_writer = cv2.VideoWriter("counting_output.avi", cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
     counter = solutions.ObjectCounter(
-        view_img=True,
-        view_in_counts=True,
-        view_out_counts=True,
-        reg_pts=region_points,
-        names=model.names,
-        draw_tracks=True,
-        line_thickness=2,
+        show_in=True,
+        show_out = False,
+        region=region_points,
+        classes=[0],
+        line_width=2,
+        model = model,
+        conf = 0.5
+        #conf = 0.8
+        #conf = 0.4
     )
     while cap.isOpened():
         success, im0 = cap.read()
         if not success:
             print("sc")
             break
-        tracks = model.track(im0, persist=True, show=False)
-        im0 = counter.start_counting(im0, tracks)
-        video_writer.write(im0)
-    print(counter.out_counts)
+
+        results = counter(im0)
+        video_writer.write(results.plot_im)
+
     cap.release()
+
     video_writer.release()
     cv2.destroyAllWindows()
-    button = types.InlineKeyboardButton("Оставить геопозицию", callback_data='геопозиция')
-    answer = types.InlineKeyboardMarkup(row_width=2)
-    answer.add(button)
-    output_video_path = "counting_output.avi"
-    clip = VideoFileClip(output_video_path)
-    clip.write_videofile(output_video_path.replace('.avi', '.MP4'))
-    bot.send_video(message.chat.id, video=open(output_video_path.replace('.avi', '.MP4'), 'rb'), reply_markup=answer)
 
+    output_mp4 = "counting_output.mp4"
+    clip = VideoFileClip("counting_output.avi")
+    clip.write_videofile(output_mp4, codec='libx264', audio=False)
+
+    if results.in_count > 0:
+        with open("video.jpg", "rb") as image_file:
+
+            if results.in_count == 1:
+                bot.send_message(message.chat.id, f"<b>Обнаружена {results.in_count} яма</b>", parse_mode="html")
+
+
+            elif (results.in_count > 1) and (results.in_count < 5):
+                bot.send_message(message.chat.id, f"<b>Обнаружено {results.in_count} ямы</b>", parse_mode="html")
+
+
+            elif results.in_count > 5:
+                bot.send_message(message.chat.id, f"<b>Обнаружено {results.in_count} ям</b>", parse_mode="html")
+
+            button = types.InlineKeyboardButton("Оставить геопозицию", callback_data='геопозиция')
+            answer = types.InlineKeyboardMarkup(row_width=2)
+            answer.add(button)
+            bot.send_video(message.chat.id, video=open(output_mp4, 'rb'), reply_markup=answer)
+            os.remove(output_mp4)
+            os.remove("counting_output.avi")
+            os.remove(file_path)
+
+            photo = image_file.read()
+            bot.register_next_step_handler(message, loc_photo, photo, photo, 1)
+    else:
+        bot.send_video(message.chat.id, video=open(output_mp4, 'rb'))
+        bot.send_message(message.chat.id,
+                         "<b>На видео не обнаружено дорожных дефектов (ям)! ⚠️ Ваша заявка не будет направленна в Росавтодор. ❌</b>",
+                         parse_mode="html")
+        bot.send_message(message.chat.id,
+                         "<b>Спасибо, за бдительность! Если вы несогласны, обратитесь по номеру телефона: 8-950-111-25-01 ☎️</b>"
+                         "\n<b>Безопасность на дорогах - это наша общая задача! 🌍</b>"
+                         "\n<b>Ждем от Вас новых заявок!</b>❤ ", parse_mode="html")
 
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
@@ -458,7 +534,8 @@ def callback_inline(call):
 
             if call.data == "видео колодец":
                 bot.send_message(call.message.chat.id, "<b>Прикрепите видео. 🎥</b>", parse_mode="html")
-                bot.register_next_step_handler(call.message, video_well)
+                bot.send_message(call.message.chat.id, "<b>Видео подсчет колодцев на данный момент не работает 🎥</b>", parse_mode="html")
+                # bot.register_next_step_handler(call.message, video_well)
 
             if call.data == 'ссылка':
                 link = 'https://t.me/Fixing_holes_Telegram_Bot'
@@ -468,26 +545,16 @@ def callback_inline(call):
                 answer_admin = types.InlineKeyboardMarkup(row_width=2)
                 button_admin_well = types.InlineKeyboardButton("Заявки на колодцы", callback_data='admin_well')
 
-                button_admin_well_map = types.InlineKeyboardButton("📍 Карта 🕳", callback_data='admin_well_map')
+                button_admin_well_map = types.InlineKeyboardButton("📍 Карта 🕳", web_app=types.WebAppInfo(url="https://naughtily-hot-genet.cloudpub.ru/well"))
 
                 button_admin_pothole = types.InlineKeyboardButton("Заявки на ямы", callback_data='admin_pothole')
 
-                button_admin_pothole_map = types.InlineKeyboardButton("📍 Карта 🖇", callback_data='admin_pothole_map')
+                button_admin_pothole_map = types.InlineKeyboardButton("📍 Карта 🖇", web_app=types.WebAppInfo(url="https://naughtily-hot-genet.cloudpub.ru/pothole"))
 
                 answer_admin.add(button_admin_well, button_admin_pothole, button_admin_well_map,
                                  button_admin_pothole_map)
                 bot.send_message(call.message.chat.id, f"<b>Данные о каких заявках вам нужны?</b>",
                                  reply_markup=answer_admin, parse_mode="html")
-
-            if call.data == "admin_well_map":
-                f = open("html/map_well.html")
-                bot.send_document(call.message.chat.id, f)
-                # bot.send_message(call.message.chat.id, "Карта данных открытых колодцах")
-
-            if call.data == "admin_pothole_map":
-                f = open("html/map.html")
-                bot.send_document(call.message.chat.id, f)
-                # bot.send_message(call.message.chat.id, "Карта данных ям")
 
             if call.data == "admin_well":
                 usernames = sql.get_all_username()
@@ -541,8 +608,8 @@ def callback_inline(call):
                 list = d.split("_")
                 app_id = int(list[0])
                 new_status = int(list[1])
-
                 sql.update_status_well(app_id, status[new_status])
+                mark_from_well_db()
                 message = f"<b>Новый статус заявки №{app_id}: {status[new_status]}</b>"
                 bot.send_message(call.message.chat.id, message, parse_mode="html")
 
@@ -591,6 +658,7 @@ def callback_inline(call):
                 for i in range(len(status)):
                     button = types.InlineKeyboardButton(status[i], callback_data=f"edit_pothole{app_id}_{i}")
                     ans.add(button)
+
                 bot.send_photo(call.message.chat.id, app[6], f"<b>{message}\nВыберите статус заявки 📝: </b>",
                                reply_markup=ans, parse_mode="html")
 
@@ -677,8 +745,6 @@ def callback_inline(call):
     except Exception as e:
         print(repr(e))
 
-
-# bot.polling(none_stop=True)
 while True:
     try:
 
